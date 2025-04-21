@@ -10,56 +10,63 @@ RCT_EXPORT_MODULE()
     return std::make_shared<facebook::react::NativeAudioSpecJSI>(params);
 }
 
-- (void)play:(NSString *)uri
+- (void)play:(NSString *)input
+  isResource:(BOOL)isResource
      resolve:(RCTPromiseResolveBlock)resolve
       reject:(RCTPromiseRejectBlock)reject
 {
     [self stopCurrentPlayback];
-    
+
+    if (!input || [input length] == 0) {
+        reject(@"Error", @"Input is empty", nil);
+        return;
+    }
+
     NSError *error;
-    NSURL *url = [NSURL URLWithString:uri];
-    if (!url) {
-        reject(@"Error", @"Invalid URI", nil);
-        return;
-    }
-    
-    if ([uri hasPrefix:@"http://"] || [uri hasPrefix:@"https://"]) {
-        NSData *audioData = [NSData dataWithContentsOfURL:url options:NSDataReadingUncached error:&error];
-        if (!audioData) {
-            NSString *errorMessage = [NSString stringWithFormat:@"Failed to download audio data: %@", error.localizedDescription];
-            reject(@"Error", errorMessage, error);
-            return;
-        }
-        
-        self.player = [[AVAudioPlayer alloc] initWithData:audioData error:&error];
-    } else {
-        if ([uri hasPrefix:@"file://"]) {
-            url = [NSURL fileURLWithPath:[uri substringFromIndex:7]];
+    if (isResource) {
+        if ([input hasPrefix:@"file://"]) {
+            NSURL *url = [NSURL URLWithString:input];
+            if (!url) {
+                reject(@"Error", @"Invalid local file URI", nil);
+                return;
+            }
+            self.player = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:&error];
+            if (!self.player) {
+                reject(@"Error", [NSString stringWithFormat:@"Failed to create player: %@", error.localizedDescription], error);
+                return;
+            }
         } else {
-            NSString *assetName = [uri stringByDeletingPathExtension];
-            NSString *extension = [uri pathExtension];
-            url = [[NSBundle mainBundle] URLForResource:assetName withExtension:extension];
-        }
-        
-        if (!url) {
-            reject(@"Error", @"Invalid URI or asset not found", nil);
+            reject(@"Error", @"Expected local file URI starting with 'file://'", nil);
             return;
         }
-        
-        self.player = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:&error];
+    } else {
+        if ([input hasPrefix:@"http://"] || [input hasPrefix:@"https://"]) {
+            NSURL *url = [NSURL URLWithString:input];
+            if (!url) {
+                reject(@"Error", @"Invalid remote URL", nil);
+                return;
+            }
+            NSData *audioData = [NSData dataWithContentsOfURL:url options:NSDataReadingUncached error:&error];
+            if (!audioData) {
+                reject(@"Error", [NSString stringWithFormat:@"Failed to download audio data: %@", error.localizedDescription], error);
+                return;
+            }
+            self.player = [[AVAudioPlayer alloc] initWithData:audioData error:&error];
+            if (!self.player) {
+                reject(@"Error", [NSString stringWithFormat:@"Failed to create player: %@", error.localizedDescription], error);
+                return;
+            }
+        } else {
+            reject(@"Error", @"Expected remote URL starting with 'http://' or 'https://'", nil);
+            return;
+        }
     }
-    
-    if (!self.player) {
-        NSString *errorMessage = [NSString stringWithFormat:@"Failed to create player: %@", error.localizedDescription];
-        reject(@"Error", errorMessage, error);
-        return;
-    }
-    
+
     self.player.delegate = self;
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     [[AVAudioSession sharedInstance] setActive:YES error:nil];
     [self.player play];
-    
+
     self.resolveBlock = resolve;
     self.rejectBlock = reject;
 }

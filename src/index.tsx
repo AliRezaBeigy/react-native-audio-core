@@ -1,32 +1,27 @@
 import Audio from './NativeAudio';
-// @ts-expect-error because resolveAssetSource is untyped
-import resolveAssetSource from 'react-native/Libraries/Image/resolveAssetSource';
+import { Image } from 'react-native';
 
 const AudioWrapper = {
   play: async (resource: number | string) => {
-    let uri: string;
-
     if (typeof resource === 'string') {
       if (resource.startsWith('http://') || resource.startsWith('https://')) {
-        uri = resource;
+        await Audio.play(resource, false);
       } else {
         throw new Error(
           'Invalid URL: Only HTTP/HTTPS URLs or local assets are supported'
         );
       }
     } else if (typeof resource === 'number') {
-      const source = resolveAssetSource(resource);
+      const source = Image.resolveAssetSource(resource);
       if (!source?.uri) {
         throw new Error('Invalid audio file');
       }
-      uri = source.uri;
+      await Audio.play(source.uri, true);
     } else {
       throw new Error(
         'Invalid resource: Must be a number (local asset) or string (URL)'
       );
     }
-
-    await Audio.play(uri);
   },
   pause: () => Audio.pause(),
   resume: () => Audio.resume(),
