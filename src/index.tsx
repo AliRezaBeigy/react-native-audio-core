@@ -16,7 +16,9 @@ const AudioWrapper = {
       if (!source?.uri) {
         throw new Error('Invalid audio file');
       }
-      await Audio.play(source.uri, true);
+      const isRemote =
+        source.uri.startsWith('http://') || source.uri.startsWith('https://');
+      await Audio.play(source.uri, !isRemote);
     } else {
       throw new Error(
         'Invalid resource: Must be a number (local asset) or string (URL)'
