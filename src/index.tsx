@@ -28,6 +28,28 @@ const AudioWrapper = {
   pause: () => Audio.pause(),
   resume: () => Audio.resume(),
   stop: () => Audio.stop(),
+  startMetronome: (bpm: number = 60, volume: number = 0.5) => {
+    if (bpm < 40 || bpm > 240) {
+      throw new Error('BPM must be between 40 and 240');
+    }
+    if (volume < 0 || volume > 1) {
+      throw new Error('Volume must be between 0 and 1');
+    }
+    Audio.startMetronome(bpm, volume);
+  },
+  stopMetronome: () => Audio.stopMetronome(),
+  setMetronomeBPM: (bpm: number) => {
+    if (bpm < 40 || bpm > 240) {
+      throw new Error('BPM must be between 40 and 240');
+    }
+    Audio.setMetronomeBPM(bpm);
+  },
+  setMetronomeVolume: (volume: number) => {
+    if (volume < 0 || volume > 1) {
+      throw new Error('Volume must be between 0 and 1');
+    }
+    Audio.setMetronomeVolume(volume);
+  },
 };
 
 export default AudioWrapper;

@@ -6,6 +6,10 @@ export interface Spec extends TurboModule {
   pause(): void;
   resume(): void;
   stop(): void;
+  startMetronome(bpm: number, volume: number): void;
+  stopMetronome(): void;
+  setMetronomeBPM(bpm: number): void;
+  setMetronomeVolume(volume: number): void;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('Audio');
