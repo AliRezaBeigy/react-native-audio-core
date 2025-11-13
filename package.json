@@ -1,6 +1,6 @@
 {
   "name": "react-native-audio-core",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "A React Native library for seamless audio playback on iOS and Android, supporting local files and streaming from remote URLs with a developer-friendly API.",
   "source": "./src/index.tsx",
   "main": "./lib/module/index.js",
