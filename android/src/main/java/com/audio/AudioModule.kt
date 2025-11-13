@@ -100,17 +100,13 @@ class AudioModule(reactContext: ReactApplicationContext) :
     isMetronomeRunning.set(true)
 
     // Pre-generate tick and tock sounds
-    android.util.Log.d("Metronome", "Generating click sounds...")
     generateClickSounds(volume)
-    android.util.Log.d("Metronome", "Click sounds generated: tick=${tickSound?.size}, tock=${tockSound?.size}")
 
     val bufferSize = AudioTrack.getMinBufferSize(
       sampleRate,
       AudioFormat.CHANNEL_OUT_MONO,
       AudioFormat.ENCODING_PCM_16BIT
     )
-    
-    android.util.Log.d("Metronome", "Min buffer size: $bufferSize")
 
     val audioAttributes = AudioAttributes.Builder()
       .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -135,34 +131,17 @@ class AudioModule(reactContext: ReactApplicationContext) :
         .setBufferSizeInBytes(maxOf(minBufferBytes, desiredBufferBytes))
         .setTransferMode(AudioTrack.MODE_STREAM)
         .build()
-    
-    android.util.Log.d("Metronome", "AudioTrack buffer size: ${metronomeAudioTrack?.bufferSizeInFrames} frames")
 
       // Set volume - use setVolume with float (0.0 to 1.0) instead of deprecated method
-      val volumeResult = metronomeAudioTrack?.setVolume(volume.toFloat())
-      android.util.Log.d("Metronome", "Set volume result: $volumeResult, requested=$volume")
-      
-      // Also try the stream volume as fallback
-      try {
-        val audioManager = reactApplicationContext.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-        val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        android.util.Log.d("Metronome", "System volume: $currentVolume/$maxVolume")
-      } catch (e: Exception) {
-        android.util.Log.w("Metronome", "Could not get system volume: ${e.message}")
-      }
+      metronomeAudioTrack?.setVolume(volume.toFloat())
       
       val playState = metronomeAudioTrack?.play()
-      android.util.Log.d("Metronome", "AudioTrack play() returned: $playState, state=${metronomeAudioTrack?.playState}")
       
       if (metronomeAudioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
-        android.util.Log.e("Metronome", "AudioTrack failed to start playing! State: ${metronomeAudioTrack?.playState}")
         // Try to start again
         metronomeAudioTrack?.play()
-        android.util.Log.d("Metronome", "Retried play(), state=${metronomeAudioTrack?.playState}")
       }
     } catch (e: Exception) {
-      android.util.Log.e("Metronome", "Error creating AudioTrack: ${e.message}", e)
       isMetronomeRunning.set(false)
       return
     }
@@ -173,9 +152,8 @@ class AudioModule(reactContext: ReactApplicationContext) :
     // Pre-fill buffer BEFORE starting thread to ensure AudioTrack is ready
     try {
       metronomeAudioTrack?.write(silenceBuffer, 0, silenceBuffer.size, AudioTrack.WRITE_BLOCKING)
-      android.util.Log.d("Metronome", "Pre-filled buffer with ${silenceBuffer.size} bytes of silence")
     } catch (e: Exception) {
-      android.util.Log.e("Metronome", "Error pre-filling buffer: ${e.message}")
+      // Ignore errors when pre-filling buffer
     }
     
     // Play first beat immediately (no delay)
@@ -195,9 +173,8 @@ class AudioModule(reactContext: ReactApplicationContext) :
           totalWritten += bytesWritten
         }
         currentBeat.incrementAndGet()
-        android.util.Log.d("Metronome", "Played first beat immediately")
       } catch (e: Exception) {
-        android.util.Log.e("Metronome", "Error playing first beat: ${e.message}")
+        // Ignore errors when playing first beat
       }
     }
     
@@ -205,7 +182,6 @@ class AudioModule(reactContext: ReactApplicationContext) :
     metronomeThread = Thread {
       // Set thread priority to maximum for better timing precision
       android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-      android.util.Log.d("Metronome", "Thread started, BPM=$bpm")
       
       // Record the actual start time using nanoTime for better precision
       val startTimeNanos = System.nanoTime()
@@ -233,13 +209,10 @@ class AudioModule(reactContext: ReactApplicationContext) :
             // Ensure minimum 1ms delay to prevent scheduling beats too soon
             val adjustedRemainingTime = maxOf(1.0, remainingTime)
             nextBeatTimeNanos = currentTimeNanos + (adjustedRemainingTime * 1_000_000).toLong()
-            
-            android.util.Log.d("Metronome", "BPM changed: $lastBPM -> $currentBPM, recalculating nextBeatTime (elapsed=${elapsedSinceLastBeat}ms, remaining=${adjustedRemainingTime}ms)")
           } else {
             // We're at or past beat time - use new BPM for next interval immediately
             val newIntervalNanos = (60.0 / currentBPM * 1_000_000_000).toLong()
             nextBeatTimeNanos = currentTimeNanos + newIntervalNanos
-            android.util.Log.d("Metronome", "BPM changed: $lastBPM -> $currentBPM at beat time, next interval=${newIntervalNanos / 1_000_000}ms")
           }
           lastBPM = currentBPM
         }
@@ -249,14 +222,11 @@ class AudioModule(reactContext: ReactApplicationContext) :
           val isTick = (currentBeat.get() % 2 == 0)
           val clickSound = if (isTick) tickSound else tockSound
           
-          android.util.Log.d("Metronome", "Playing beat ${currentBeat.get()}, isTick=$isTick, soundSize=${clickSound?.size} bytes")
-          
           if (clickSound != null && metronomeAudioTrack != null) {
             try {
               // Check AudioTrack state before writing
               val trackState = metronomeAudioTrack?.playState
               if (trackState != AudioTrack.PLAYSTATE_PLAYING) {
-                android.util.Log.w("Metronome", "AudioTrack not playing! State: $trackState, restarting...")
                 metronomeAudioTrack?.stop()
                 metronomeAudioTrack?.play()
                 // Re-fill buffer after restart
@@ -274,20 +244,14 @@ class AudioModule(reactContext: ReactApplicationContext) :
                 ) ?: 0
                 
                 if (bytesWritten <= 0) {
-                  android.util.Log.e("Metronome", "Failed to write audio, bytesWritten=$bytesWritten, state=${metronomeAudioTrack?.playState}")
                   break
                 }
                 
                 totalWritten += bytesWritten
               }
-              
-              android.util.Log.d("Metronome", "Wrote $totalWritten/${clickSound.size} bytes, trackState=${metronomeAudioTrack?.playState}")
             } catch (e: Exception) {
-              android.util.Log.e("Metronome", "Error writing audio: ${e.message}", e)
-              e.printStackTrace()
+              // Ignore errors when writing audio
             }
-          } else {
-            android.util.Log.e("Metronome", "Click sound or AudioTrack is null! sound=${clickSound != null}, track=${metronomeAudioTrack != null}")
           }
           
           currentBeat.incrementAndGet()
@@ -322,13 +286,10 @@ class AudioModule(reactContext: ReactApplicationContext) :
           } catch (e: InterruptedException) {
             // Thread was interrupted (likely due to BPM change), continue loop to check new BPM
             // Don't break - just continue to next iteration to check for BPM changes
-            android.util.Log.d("Metronome", "Thread interrupted (likely BPM change), continuing...")
             continue
           }
         }
       }
-      
-      android.util.Log.d("Metronome", "Thread stopped")
     }
 
     metronomeThread?.start()
@@ -347,8 +308,6 @@ class AudioModule(reactContext: ReactApplicationContext) :
     val tockFloat = FloatArray(totalSamples)
     generateClickBuffer(false, tockFloat, volume)
     tockSound = floatToPCM16(tockFloat)
-    
-    android.util.Log.d("Metronome", "Converted to PCM16: tick=${tickSound?.size} bytes, tock=${tockSound?.size} bytes")
   }
   
   private fun floatToPCM16(floatArray: FloatArray): ByteArray {
@@ -404,8 +363,6 @@ class AudioModule(reactContext: ReactApplicationContext) :
 
       buffer[i] = sample.toFloat()
     }
-    
-    android.util.Log.d("Metronome", "Generated ${if (isTick) "tick" else "tock"} sound: max=$maxSample, min=$minSample, samples=${buffer.size}")
   }
 
 
@@ -446,7 +403,6 @@ class AudioModule(reactContext: ReactApplicationContext) :
   }
 
   override fun stopMetronome() {
-    android.util.Log.d("Metronome", "Stopping metronome...")
     isMetronomeRunning.set(false)
 
     // Interrupt the thread to wake it from sleep
@@ -456,7 +412,6 @@ class AudioModule(reactContext: ReactApplicationContext) :
       metronomeThread?.join(500) // Wait up to 500ms for thread to finish
     } catch (e: InterruptedException) {
       // Current thread was interrupted, that's okay
-      android.util.Log.d("Metronome", "Join interrupted")
     }
     
     metronomeThread = null
@@ -465,19 +420,17 @@ class AudioModule(reactContext: ReactApplicationContext) :
       metronomeAudioTrack?.stop()
       metronomeAudioTrack?.flush()
     } catch (e: Exception) {
-      android.util.Log.e("Metronome", "Error stopping AudioTrack: ${e.message}")
+      // Ignore errors when stopping AudioTrack
     }
     
     try {
       metronomeAudioTrack?.release()
     } catch (e: Exception) {
-      android.util.Log.e("Metronome", "Error releasing AudioTrack: ${e.message}")
+      // Ignore errors when releasing AudioTrack
     }
     
     metronomeAudioTrack = null
     currentBeat.set(0)
-    
-    android.util.Log.d("Metronome", "Metronome stopped")
   }
 
   override fun setMetronomeBPM(bpm: Double) {

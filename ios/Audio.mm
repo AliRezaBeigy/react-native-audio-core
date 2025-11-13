@@ -156,17 +156,22 @@ RCT_EXPORT_MODULE()
     [self generateClickSounds:volume];
     
     // Create source node for generating audio
-    __weak typeof(self) weakSelf = self;
+    __weak Audio *weakSelf = self;
     self.metronomeSourceNode = [[AVAudioSourceNode alloc] initWithRenderBlock:^OSStatus(BOOL *isSilence, const AudioTimeStamp *timestamp, AVAudioFrameCount frameCount, AudioBufferList *outputData) {
+        __strong Audio *strongSelf = weakSelf;
+        if (!strongSelf) {
+            *isSilence = YES;
+            return noErr;
+        }
         @autoreleasepool {
-            if (!weakSelf.isMetronomeRunning) {
+            if (!strongSelf.isMetronomeRunning) {
                 *isSilence = YES;
                 return noErr;
             }
             
             // Get current audio time in seconds
-            double currentTime = timestamp->mSampleTime / weakSelf.sampleRate;
-            double currentBPM = weakSelf.bpm;
+            double currentTime = timestamp->mSampleTime / strongSelf.sampleRate;
+            double currentBPM = strongSelf.bpm;
             
             // Fill buffer with silence initially
             float *channel0 = (float *)outputData->mBuffers[0].mData;
@@ -175,27 +180,27 @@ RCT_EXPORT_MODULE()
             }
             
             // Initialize timing on first call (play first beat immediately)
-            if (weakSelf.nextBeatTime == 0) {
-                weakSelf.nextBeatTime = currentTime;
-                weakSelf.lastBeatTime = currentTime;
-                weakSelf.currentBeat = 0;
-                weakSelf.lastBPM = currentBPM;
+            if (strongSelf.nextBeatTime == 0) {
+                strongSelf.nextBeatTime = currentTime;
+                strongSelf.lastBeatTime = currentTime;
+                strongSelf.currentBeat = 0;
+                strongSelf.lastBPM = currentBPM;
                 
                 // Play first beat immediately (like Android)
-                BOOL isTick = (weakSelf.currentBeat % 2 == 0);
-                [weakSelf playPreGeneratedClick:isTick inBuffer:channel0 atFrame:0 frameCount:frameCount];
-                weakSelf.currentBeat++;
+                BOOL isTick = (strongSelf.currentBeat % 2 == 0);
+                [strongSelf playPreGeneratedClick:isTick inBuffer:channel0 atFrame:0 frameCount:frameCount];
+                strongSelf.currentBeat++;
                 double beatInterval = 60.0 / currentBPM;
-                weakSelf.nextBeatTime = currentTime + beatInterval;
-                weakSelf.lastBeatTime = currentTime;
+                strongSelf.nextBeatTime = currentTime + beatInterval;
+                strongSelf.lastBeatTime = currentTime;
             }
             
             // Handle BPM changes with proportional recalculation (like Android)
-            if (currentBPM != weakSelf.lastBPM) {
-                if (currentTime < weakSelf.nextBeatTime) {
+            if (currentBPM != strongSelf.lastBPM) {
+                if (currentTime < strongSelf.nextBeatTime) {
                     // We're between beats - recalculate proportionally
-                    double elapsedSinceLastBeat = (currentTime - weakSelf.lastBeatTime) * 1000.0; // Convert to ms
-                    double oldInterval = (60.0 / weakSelf.lastBPM * 1000.0);
+                    double elapsedSinceLastBeat = (currentTime - strongSelf.lastBeatTime) * 1000.0; // Convert to ms
+                    double oldInterval = (60.0 / strongSelf.lastBPM * 1000.0);
                     double newInterval = (60.0 / currentBPM * 1000.0);
                     
                     // Proportionally adjust: if we're X% through old interval, be X% through new interval
@@ -204,46 +209,36 @@ RCT_EXPORT_MODULE()
                     
                     // Ensure minimum 1ms delay to prevent scheduling beats too soon
                     double adjustedRemainingTime = MAX(1.0, remainingTime);
-                    weakSelf.nextBeatTime = currentTime + (adjustedRemainingTime / 1000.0);
+                    strongSelf.nextBeatTime = currentTime + (adjustedRemainingTime / 1000.0);
                 } else {
                     // We're at or past beat time - use new BPM for next interval immediately
                     double newInterval = 60.0 / currentBPM;
-                    weakSelf.nextBeatTime = currentTime + newInterval;
+                    strongSelf.nextBeatTime = currentTime + newInterval;
                 }
-                weakSelf.lastBPM = currentBPM;
+                strongSelf.lastBPM = currentBPM;
             }
             
-            // Schedule beats that fall within this buffer or near future
-            double bufferEndTime = currentTime + (double)frameCount / weakSelf.sampleRate;
-            double lookAhead = 0.15; // 150ms look-ahead
-            double scheduleUntil = bufferEndTime + lookAhead;
-            
-            // Schedule all beats that should occur in this time window
-            while (weakSelf.nextBeatTime < scheduleUntil) {
-                double samplesUntilBeat = (weakSelf.nextBeatTime - currentTime) * weakSelf.sampleRate;
-                BOOL isTick = (weakSelf.currentBeat % 2 == 0);
+            // Time-based beat scheduling (like Android) - simpler and more reliable
+            // Check if beat is due and play it immediately at the start of the buffer
+            // Process all beats that are due (currentTime >= nextBeatTime, like Android)
+            // Use a small tolerance (10ms) to catch beats that are slightly in the past
+            while (strongSelf.nextBeatTime <= currentTime + 0.01) {
+                BOOL isTick = (strongSelf.currentBeat % 2 == 0);
                 
-                // Schedule beat if it's in the current buffer or very near future (within 10ms)
-                if (samplesUntilBeat >= -weakSelf.sampleRate * 0.01 && samplesUntilBeat < frameCount) {
-                    AVAudioFrameCount frameOffset = (AVAudioFrameCount)MAX(0, samplesUntilBeat);
-                    
-                    // Only generate if we have room in the buffer
-                    if (frameOffset < frameCount) {
-                        // Play pre-generated sound (like Android)
-                        [weakSelf playPreGeneratedClick:isTick
-                                               inBuffer:channel0
-                                                atFrame:frameOffset
-                                             frameCount:frameCount - frameOffset];
-                    }
-                }
+                // Play beat immediately at the start of the current buffer (like Android's immediate write)
+                // This is simpler than trying to calculate exact frame offsets
+                [strongSelf playPreGeneratedClick:isTick
+                                       inBuffer:channel0
+                                        atFrame:0
+                                     frameCount:frameCount];
                 
-                // Move to next beat (always advance, even if we didn't generate this one)
-                weakSelf.currentBeat++;
-                weakSelf.lastBeatTime = weakSelf.nextBeatTime;
+                // Advance to next beat (like Android)
+                strongSelf.currentBeat++;
+                strongSelf.lastBeatTime = strongSelf.nextBeatTime;
                 
-                // Calculate next beat time based on current BPM
-                double beatInterval = 60.0 / weakSelf.bpm;
-                weakSelf.nextBeatTime = weakSelf.nextBeatTime + beatInterval;
+                // Calculate next beat time based on current BPM (like Android)
+                double beatInterval = 60.0 / strongSelf.bpm;
+                strongSelf.nextBeatTime = strongSelf.nextBeatTime + beatInterval;
             }
             
             // Handle stereo if needed
@@ -265,7 +260,6 @@ RCT_EXPORT_MODULE()
     // Start engine
     NSError *engineError = nil;
     if (![self.metronomeEngine startAndReturnError:&engineError]) {
-        NSLog(@"Failed to start metronome engine: %@", engineError);
         self.isMetronomeRunning = NO;
         return;
     }
